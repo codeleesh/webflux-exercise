@@ -1,7 +1,15 @@
+webclient:
+  connect-timeout: PT5S
+  read-timeout: PT10S
+  logging-enabled: true
+  retry-enabled: true
+  max-retry-attempts: 3
+  metrics-enabled: true
+
 logging:
-  level:
-    io.codelee.webflux: DEBUG
-    org.springframework.web.reactive: DEBUG
-    reactor.netty: INFO
-  pattern:
-    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    level:
+        io.codelee.webflux: DEBUG
+        org.springframework.web.reactive: DEBUG
+        reactor.netty: INFO
+    pattern:
+        console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
