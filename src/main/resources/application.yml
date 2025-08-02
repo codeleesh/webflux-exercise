@@ -1,0 +1,7 @@
+webclient:
+    connect-timeout: PT5S
+    read-timeout: PT10S
+    logging-enabled: true
+    retry-enabled: true
+    max-retry-attempts: 3
+    metrics-enabled: true
