@@ -1,6 +1,6 @@
 package io.codelee.webflux.jsonplaceholder.application;
 
-import org.reactivestreams.Publisher;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
@@ -13,17 +13,15 @@ import java.util.List;
 @Service
 public class PostService {
 
-    private final WebClient webClient;
+    private final WebClient jsonPlaceholderClient;
     private final List<Post> posts = new ArrayList<>();
 
-    public PostService(WebClient.Builder webClientBuilder) {
-        this.webClient = webClientBuilder
-                .baseUrl("https://jsonplaceholder.typicode.com")
-                .build();
+    public PostService(@Qualifier("jsonPlaceholderClient") WebClient jsonPlaceholderClient) {
+        this.jsonPlaceholderClient = jsonPlaceholderClient;
     }
 
     public Flux<Post> getAllPosts() {
-        return webClient.get()
+        return jsonPlaceholderClient.get()
                 .uri("/posts")
                 .retrieve()
                 .bodyToFlux(Post.class)
@@ -31,7 +29,7 @@ public class PostService {
     }
 
     public Mono<Post> getPost(Long id) {
-        return webClient.get()
+        return jsonPlaceholderClient.get()
                 .uri("/posts/{id}", id)
                 .retrieve()
                 .bodyToMono(Post.class);
