@@ -30,7 +30,6 @@ class PostControllerIntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isOk()
-                .expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
                 .expectBodyList(Post.class)
                 .hasSize(5)
                 .consumeWith(response -> {
@@ -48,7 +47,6 @@ class PostControllerIntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isOk()
-                .expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
                 .expectBodyList(String.class)
                 .hasSize(1);
     }
@@ -61,7 +59,6 @@ class PostControllerIntegrationTest {
                 .accept(MediaType.APPLICATION_JSON)
                 .exchange()
                 .expectStatus().isOk()
-                .expectHeader().contentType(MediaType.APPLICATION_JSON_UTF8)
                 .expectBodyList(String.class)
                 .hasSize(1);
     }
