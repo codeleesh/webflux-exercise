@@ -2,6 +2,7 @@ package io.codelee.webflux.jsonplaceholder;
 
 import io.codelee.webflux.jsonplaceholder.application.Post;
 import io.codelee.webflux.jsonplaceholder.application.PostService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
@@ -13,11 +14,17 @@ import reactor.core.publisher.Mono;
 @TestConfiguration
 public class TestWebClientConfig {
 
+    private final WebClient jsonPlaceholderClient;
+
+    public TestWebClientConfig(@Qualifier("jsonPlaceholderClient") WebClient jsonPlaceholderClient) {
+        this.jsonPlaceholderClient = jsonPlaceholderClient;
+    }
+
     @Bean
     @Primary
     @Profile("test")
     public PostService testPostService() {
-        return new PostService(WebClient.builder()) {
+        return new PostService(jsonPlaceholderClient) {
             @Override
             public Flux<Post> getAllPosts() {
                 return Flux.just(
