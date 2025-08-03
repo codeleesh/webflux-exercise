@@ -26,7 +26,7 @@ public class TestWebClientConfig {
     public PostService testPostService() {
         return new PostService(jsonPlaceholderClient) {
             @Override
-            public Flux<Post> getAllPosts() {
+            public Flux<Post> getAllPostsLog() {
                 return Flux.just(
                         new Post(1L, "Test Title", "Test Body", 1L)
                 );
