@@ -27,7 +27,7 @@ class PostServiceMockBeanTest {
     void shouldMockServiceWithMockBean() {
         // Mock 동작 설정
         Post mockPost = new Post(1L, "Mock Title", "Mock Body", 1L);
-        when(postService.getAllPosts()).thenReturn(Flux.just(mockPost));
+        when(postService.getAllPostsLog()).thenReturn(Flux.just(mockPost));
 
         // 테스트 실행
         webTestClient.get()
@@ -39,6 +39,6 @@ class PostServiceMockBeanTest {
                 .contains(mockPost);
 
         // Mock 호출 검증
-        verify(postService).getAllPosts();
+        verify(postService).getAllPostsLog();
     }
 }

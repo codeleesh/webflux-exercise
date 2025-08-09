@@ -21,49 +21,18 @@ public class PostController {
     }
 
     @GetMapping("/posts")
-    public Flux<Post> getAllPosts() {
-        return postService.getAllPosts()
-                .doOnSubscribe(subscription -> log.info("getAllPosts 구독 시작"))
-                .doOnNext(post -> log.info("포스트 조회됨: ID={}, Title={}", post.getId(), post.getTitle()))
-                .doOnComplete(() -> log.info("getAllPosts 완료"))
-                .doOnError(error -> log.error("getAllPosts 에러: {}", error.getMessage()));
-
+    public Flux<Post> getAllPostsLog() {
+        return postService.getAllPostsLog();
     }
 
     @PostMapping("/posts/batch")
     public Mono<String> batchInsertGroupPosts(@RequestParam(value = "group") final int group) {
-        return postService.getAllPosts()
-                .doOnSubscribe(subscription -> log.info("getAllPosts 구독 시작"))
-                .doOnNext(post -> log.info("포스트 조회됨: ID={}, Title={}", post.getId(), post.getTitle()))
-                .buffer(group)
-                .doOnNext(posts -> log.info("포스트 목록 조회됨: {}", posts.size()))
-                .flatMap(posts -> {
-                    return postService.save(posts)
-                            .doOnSuccess(result -> log.info("배치 저장 완료: {}개 포스트 처리됨", posts.size()))
-                            .doOnError(error -> log.error("배치 저장 실패: {}", error.getMessage()));
-                })
-                .doOnComplete(() -> log.info("getAllPosts 완료"))
-                .doOnError(error -> log.error("getAllPosts 에러: {}", error.getMessage()))
-                .count()
-                .map(batchCount -> String.format("총 %d개 배치 처리 완료", batchCount));
+        return postService.batchInsertGroupPosts(group);
     }
 
     @PostMapping("/posts/real-time")
     public Mono<String> batchInsertRealTimePosts(@RequestParam(value = "second") final int second) {
-        return postService.getAllPosts()
-                .doOnSubscribe(subscription -> log.info("getAllPosts 구독 시작"))
-                .doOnNext(post -> log.info("포스트 조회됨: ID={}, Title={}", post.getId(), post.getTitle()))
-                .buffer(Duration.ofSeconds(second))
-                .doOnNext(posts -> log.info("포스트 목록 조회됨: {}", posts.size()))
-                .flatMap(posts -> {
-                    return postService.save(posts)
-                            .doOnSuccess(result -> log.info("배치 저장 완료: {}개 포스트 처리됨", posts.size()))
-                            .doOnError(error -> log.error("배치 저장 실패: {}", error.getMessage()));
-                })
-                .doOnComplete(() -> log.info("getAllPosts 완료"))
-                .doOnError(error -> log.error("getAllPosts 에러: {}", error.getMessage()))
-                .count()
-                .map(batchCount -> String.format("총 %d개 배치 처리 완료", batchCount));
+        return postService.batchInsertRealTimePosts(second);
     }
 
     @GetMapping("/posts/{id}")
