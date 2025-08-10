@@ -431,6 +431,218 @@ public Flux<Interger> get() {
 }
 ```
 
+## take 연산자
+
+### 처음 n개 요소만 가져오기
+```java
+Flux<T> take(long n);
+Flux<T> take(long n, boolean limitRequest);  // 요청 제한 옵션 포함
+```
+- 페이징 구현
+- 무한 스트림 제한
+- 샘플 데이터 추출
+- 성능 최적화 (필요한 만큼만 처리)
+
+limitRequest
+- 백프레셔(backpressure) 최적화 옵션
+- true: 상위 스트림에 정확히 n개만 요청 (효율적)
+- false: 상위 스트림에 제한 없이 요청하고 n개 후 취소 (기본값)
+
+필요
+- DB 쿼리 또는 API 호출 같은 비용인 높은 작업
+- 대용량 데이터 처리
+- 메모리 사용을 제한해야 할 때
+- 네트워크 트래픽을 줄여야 할 때
+- 백프레셔가 중요한 시스템
+
+불필요
+- 인메모리 컬렉션 처리
+- 이미 캐시된 데이터
+- 빠른 연산만 있는 경우
+
+```java
+    // 처음 5개만 가져오기
+    public Flux<Integer> getFirstFive() {
+        return Flux.range(1, 100)
+            .take(5);  // 1, 2, 3, 4, 5
+    }
+    
+    // DB에서 상위 10개만 조회
+    public Flux<User> getTopUsers() {
+        return userRepository.findAllOrderByScore()
+            .take(10);  // 처음 10명만
+    }
+    
+    // 스트리밍 데이터 제한
+    public Flux<Event> getLimitedEvents() {
+        return eventStream.getInfiniteStream()
+            .take(100);  // 100개 받으면 자동 종료
+    }
+```
+
+### 시간 기반 제한
+```java
+Flux<T> take(Duration timespan);
+Flux<T> take(Duration timespan, Scheduler timer);
+```
+- 시간 제한 샘플링
+- 실시간 스트림 모니터링
+- 타임박스 데이터 수집
+- 성능 테스트
+
+```java
+    // 5초 동안만 데이터 수집
+    public Flux<StockPrice> getStockPricesForDuration() {
+        return stockPriceStream.getLiveStream()
+            .take(Duration.ofSeconds(5));  // 5초 후 자동 종료
+    }
+    
+    // 1분 동안 로그 수집
+    public Flux<LogEntry> collectLogs() {
+        return logStream.stream()
+            .take(Duration.ofMinutes(1), Schedulers.parallel());
+    }
+    
+    // 제한 시간 동안 이벤트 수집
+    public Flux<ClickEvent> collectClickEvents(int seconds) {
+        return clickEventStream.getEvents()
+            .take(Duration.ofSeconds(seconds))
+            .doOnComplete(() -> log.info("Collection completed after {} seconds", seconds));
+    }
+```
+
+### 조건 만족까지
+```java
+Flux<T> takeUntil(Predicate<? super T> predicate);
+```
+- 종료 신호 감지
+- 조건부 스트림 종료
+- 마지막 요소 포함하여 종료
+
+```java
+    // 특정 값을 만날 때까지
+    public Flux<Integer> takeUntilNegative() {
+        return Flux.just(1, 2, 3, -1, 4, 5)
+            .takeUntil(n -> n < 0);  // 1, 2, 3, -1 (음수 포함)
+    }
+    
+    // 에러 신호까지 수집
+    public Flux<HealthCheck> monitorUntilError() {
+        return healthCheckStream.stream()
+            .takeUntil(health -> health.getStatus() == Status.ERROR);
+            // ERROR 상태 포함하여 종료
+    }
+    
+    // 종료 신호까지 처리
+    public Flux<Message> readUntilEndMessage() {
+        return messageQueue.messages()
+            .takeUntil(msg -> "END".equals(msg.getType()))
+            .doOnComplete(() -> log.info("End message received"));
+    }
+```
+
+### 조건이 참인 동안
+```java
+Flux<T> takeWhile(Predicate<? super T> continuePredicate);
+Flux<T> takeWhile(Predicate<? super T> continuePredicate, boolean includeFailingElement);
+```
+- 연속된 유효 데이터 추출
+- 누적 조건 처리
+- 조건 위반 시 즉시 중단
+- 마지막 요소 제외하고 종료
+
+```java
+    // 조건이 참인 동안만
+    public Flux<Integer> takeWhilePositive() {
+        return Flux.just(1, 2, 3, -1, 4, 5)
+            .takeWhile(n -> n > 0);  // 1, 2, 3 (음수 제외)
+    }
+    
+    // 가격이 임계값 이하인 동안
+    public Flux<Product> getAffordableProducts(double budget) {
+        double spent = 0;
+        return productStream.stream()
+            .takeWhile(product -> {
+                spent += product.getPrice();
+                return spent <= budget;
+            });
+    }
+    
+    // 실패 요소 포함 옵션
+    public Flux<Data> processUntilInvalid() {
+        return dataStream.stream()
+            .takeWhile(
+                data -> data.isValid(),
+                true  // 실패한 요소도 포함
+            );
+    }
+```
+
+### 다른 Publisher 신호까지
+```java
+Flux<T> takeUntilOther(Publisher<?> other);
+```
+- 외부 신호 기반 종료
+- 타임아웃 구현
+- 취소 메커니즘
+- 이벤트 기반 종료
+
+```java
+    // 타이머 신호까지
+    public Flux<Data> collectUntilTimeout() {
+        Mono<Long> timer = Mono.delay(Duration.ofSeconds(10));
+        
+        return dataStream.stream()
+            .takeUntilOther(timer);  // 10초 후 종료
+    }
+    
+    // 사용자 취소 신호까지
+    public Flux<ProcessingResult> processUntilCancelled(Mono<Void> cancelSignal) {
+        return processingStream.stream()
+            .takeUntilOther(cancelSignal)
+            .doOnComplete(() -> log.info("Processing cancelled by user"));
+    }
+    
+    // 다른 이벤트 발생까지
+    public Flux<Order> collectOrdersUntilShutdown() {
+        Flux<ShutdownEvent> shutdownSignal = eventBus.on(ShutdownEvent.class);
+        
+        return orderStream.stream()
+            .takeUntilOther(shutdownSignal)
+            .doFinally(signal -> log.info("Order collection stopped: {}", signal));
+    }
+```
+
+### 마지막 n개 요소
+```java
+Flux<T> takeLast(int n);
+```
+- 최근 데이터 조회
+- 히스토리 마지막 부분
+- 주의: 전체 스트림을 버퍼링하므로 메모리 고려
+
+```java
+    // 마지막 5개만
+    public Flux<LogEntry> getRecentLogs() {
+        return logRepository.findAll()
+            .takeLast(5);  // 마지막 5개 로그
+    }
+    
+    // 최근 거래 내역
+    public Flux<Transaction> getRecentTransactions(String userId) {
+        return transactionRepository.findByUserId(userId)
+            .takeLast(10)
+            .doOnNext(tx -> log.info("Recent transaction: {}", tx));
+    }
+    
+    // 메모리 주의 - 전체를 버퍼링하기 때문에 take로 먼저 제한한 후 사용
+    public Flux<Event> getLastEvents() {
+        return eventStream.stream()
+            .take(1000)      // 먼저 제한
+            .takeLast(10);   // 그 중 마지막 10개
+    }
+```
+
 ## doOn 연산자
 - 사이드 이펙트 연산자
 - 추가적인 작업을 수행할 수 있게 해주는 연산자
@@ -1098,6 +1310,10 @@ Mono<T> doOnError(Predicate<? super Throwable> predicate,
     }
 ```
 
+## 백프레셔
+
+### onBackpressureBuffer
+
 ## 예외 처리
 
 ### onErrorMap
@@ -1123,3 +1339,5 @@ public Mono<HttpBinResponse> testDelay(int seconds) {
             .timeout(Duration.ofSeconds(seconds + 5), Mono.error(new CustomException("Timeout occurred")));
 }
 ```
+
+
