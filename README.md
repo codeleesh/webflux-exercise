@@ -87,12 +87,14 @@ public Mono<User> get() {
 
 ## bodyTo 연산자
 
-### bodyToMono 
-- 단일 요소
+### bodyToMono
 ```java
     <T> Mono<T> bodyToMono(Class<T> elementClass);
     <T> Mono<T> bodyToMono(ParameterizedTypeReference<T> elementTypeRef);
 ```
+- 가장 간단한 응답 처리 방법
+- 헤더나 상태 코드는 무시
+- 블로빙 방식은 권장하지 않음(`block`)
 
 ```java
 public Mono<User> getUser(String id) {
@@ -104,12 +106,21 @@ public Mono<User> getUser(String id) {
 ```
 
 ### bodyToFlux
-- 다중 요소 스트림
 ```java
     <T> Flux<T> bodyToFlux(Class<T> elementClass);
 ```
+- 다중 요소 스트림
 - HTTP 응답 본문을 지정된 타입의 Flux로 변환
 - 배열이나 컬렉션 응답에 적합
+
+```java
+public Flux<User> getUsers() {
+    return webClient.get()
+            .uri("/api/users")
+            .retrieve()
+            .bodyToFlux(User.class);
+}
+```
 
 ```java
     <T> Flux<T> bodyToFlux(ParameterizedTypeReference<T> elementTypeRef);
@@ -149,12 +160,13 @@ public Flux<SensorData> streamSensorData() {
 ```
 
 ### toEntity
-- 전체 HTTP 응답
-
 ```java
     <T> Mono<ResponseEntity<T>> toEntity(Class<T> bodyClass);
     <T> Mono<ResponseEntity<T>> toEntity(ParameterizedTypeReference<T> bodyTypeRef);
 ```
+- WebClient의 응답을 ResponseEntity<T> 형태로 변환하는 메서드
+- HTTP 메타데이터 포함: 응답 본문뿐만 아니라 상태 코드, 헤더 등의 HTTP 정보를 함께 받을 수 있음
+
 
 ```java
 public Mono<ResponseEntity<User>> getUserWithHeaders(String id) {
@@ -170,13 +182,21 @@ public Mono<ResponseEntity<User>> getUserWithHeaders(String id) {
 }
 ```
 
-### toEntityFlux
-- 스트림과 메타데이터
+### toEntityList
+```java
+    <T> Mono<ResponseEntity<List<T>>> toEntityList(Class<T> elementClass);
+    
+```
+- List 형태의 응답을 ResponseEntity<List<T>>로 변환
+- 여러 개의 요소를 반환하는 API 호출 시 사용
 
+### toEntityFlux
+#### Class
 ```java
     <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(Class<T> elementClass);
-    <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(ParameterizedTypeReference<T> elementTypeRef);
 ```
+- 스트리밍 응답을 각각 ResponseEntity로 감싸서 반환
+- Server-Sent Events나 스트리밍 데이터 처리 시 사용
 
 ```java
 public Mono<ResponseEntity<Flux<User>>> getUsersWithMetadata() {
@@ -191,10 +211,50 @@ public Mono<ResponseEntity<Flux<User>>> getUsersWithMetadata() {
 }
 ```
 
-### toBodilessEntity
-- 본문 없는 응답
+#### ParameterizedTypeReference
 ```java
-- ```
+    <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(ParameterizedTypeReference<T> elementTypeRef);
+```
+- 복잡한 제네릭 타입 (예: List<Map<String, Object>>)을 처리할 때 사용
+
+#### BodyExtractor
+```java
+    <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(BodyExtractor<Flux<T>, ? super ClientHttpResponse> bodyExtractor);
+```
+- HTTP 응답(ClientHttpResponse)을 Flux<T>로 변환하는 추출기
+- 각 요소가 ResponseEntity로 감싸진 Flux 스트림
+
+사용 예시
+- SSE나 실시간 스트리밍 데이터
+- 각 스트림 이벤트마다 다른 헤더 정보가 있을 때
+- 청크 단위 전송에서 진행률이나 메타데이터가 필요할 때
+- 스트리밍 중 연결 상태나 제어 정보가 헤더로 전달될 때
+
+```java
+    public Flux<ResponseEntity<StockPrice>> streamStockPrices() {
+        return webClient
+            .get()
+            .uri("/stocks/live")
+            .accept(MediaType.TEXT_EVENT_STREAM)
+            .retrieve()
+            .toEntityFlux(BodyExtractors.toFlux(StockPrice.class))
+            .map(entity -> {
+                // 각 이벤트의 헤더 확인
+                String eventId = entity.getHeaders().getFirst("X-Event-Id");
+                String timestamp = entity.getHeaders().getFirst("X-Timestamp");
+                
+                log.info("Event {} received at {}", eventId, timestamp);
+                return entity;
+            });
+    }
+```
+
+### toBodilessEntity
+```java
+    Mono<ResponseEntity<Void>> toBodilessEntity();
+```
+- 응답 본문이 없는 경우 사용 (DELETE, HEAD 요청 등)
+- 헤더와 상태 코드만 필요할 때 유용
 
 ## batch 연산자
 - 스트림의 요소들을 그룹으로 모아서 배치 처리하는데 사용
