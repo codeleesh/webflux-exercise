@@ -691,17 +691,316 @@ public Mono<ServiceResponse> callExternalService(String requestId) {
 ## onError 연산자
 
 ### onErrorComplete
+```java
+// 모든 에러를 완료로
+Mono<T> onErrorComplete();
+Flux<T> onErrorComplete();
+
+// 특정 타입만
+Mono<T> onErrorComplete(Class<? extends Throwable> type);
+
+// 조건부
+Mono<T> onErrorComplete(Predicate<? super Throwable> predicate);
+```
+- 에러를 정상 완료로 처리
+- 선택적 작업 실패 무시
+- 부가 기능 에러가 주 기능에 영향 없을 때
+- 에러를 정상 흐름으로 처리
+
+```java
+    // 없어도 되는 데이터
+    public Mono<Void> updateOptionalData(String id, OptionalData data) {
+        return optionalService.update(id, data)
+            .onErrorComplete(NotFoundException.class);  // 없으면 그냥 완료
+    }
+    
+    // 선택적 알림
+    public Mono<Void> sendNotification(User user) {
+        return notificationService.send(user)
+            .onErrorComplete(error -> {
+                // 알림 실패는 무시 가능
+                log.debug("Notification failed for user: {}", user.getId());
+                return true;
+            });
+    }
+    
+    // 캐시 업데이트 (실패해도 무방)
+    public Flux<Item> getItemsWithCacheUpdate(String key) {
+        return itemService.getItems()
+            .doOnNext(item -> 
+                cacheService.put(key, item)
+                    .onErrorComplete()  // 캐시 실패 무시
+                    .subscribe()
+            );
+    }
+```
 
 ### onErrorContinue
+```java
+// 에러와 문제 요소를 받는 BiConsumer
+Flux<T> onErrorContinue(BiConsumer<Throwable, Object> errorConsumer);
+
+// 특정 타입만 처리
+Flux<T> onErrorContinue(Class<? extends Throwable> type,
+                        BiConsumer<Throwable, Object> errorConsumer);
+
+// 조건부 처리
+Flux<T> onErrorContinue(Predicate<? super Throwable> predicate,
+                        BiConsumer<Throwable, Object> errorConsumer);
+```
+- 에러 무시하고 계속 (Flux 전용)
+- 배치 처리에서 부분 실패 허용
+- 스트림 처리에서 불량 데이터 건너뛰기
+- 완벽함보다 가용성이 중요할 때
+
+```java
+    // 배치 처리 - 일부 실패 허용
+    public Flux<ProcessedItem> processBatch(Flux<RawItem> items) {
+        return items
+            .map(this::processItem)
+            .onErrorContinue((error, item) -> {
+                log.error("Failed to process item: {}, error: {}", 
+                    item, error.getMessage());
+                // 에러 기록하고 계속 진행
+                errorRepository.save(new ErrorLog(item, error));
+            });
+    }
+    
+    // 데이터 검증 - 잘못된 데이터 건너뛰기
+    public Flux<ValidData> validateData(Flux<String> rawData) {
+        return rawData
+            .map(this::parse)
+            .map(this::validate)
+            .onErrorContinue(ValidationException.class, (error, data) -> {
+                log.warn("Validation failed for: {}", data);
+                metrics.incrementValidationErrors();
+            });
+    }
+    
+    // 대량 이메일 발송
+    public Flux<EmailResult> sendBulkEmails(Flux<Email> emails) {
+        return emails
+            .flatMap(email -> sendEmail(email)
+                .onErrorResume(error -> Mono.just(EmailResult.failed(email, error)))
+            )
+            .onErrorContinue((error, email) -> {
+                // 개별 이메일 실패는 무시
+                log.error("Email failed: {}", email);
+            });
+    }
+```
 
 ### onErrorResume
+```java
+    // 에러를 받아 대체 Publisher 반환
+    Mono<T> onErrorResume(Function<? super Throwable, ? extends Mono<? extends T>> fallback);
+    Flux<T> onErrorResume(Function<? super Throwable, ? extends Publisher<? extends T>> fallback);
+
+    // 특정 에러 타입에 대해서만
+    Mono<T> onErrorResume(Class<? extends Throwable> type, 
+                          Function<? super E, ? extends Mono<? extends T>> fallback);
+
+    // 조건에 따라
+    Mono<T> onErrorResume(Predicate<? super Throwable> predicate,
+                          Function<? super Throwable, ? extends Mono<? extends T>> fallback);
+```
+- 에러 시 대체 Publisher로 전환
+- 대체 데이터 소스가 있을 때
+- 에러 복구 로직이 복잡할 때
+- 조건부 재시도가 필요할 때
+
+```java
+    // 대체 소스로 전환
+    public Mono<Data> getDataWithFallback(String id) {
+        return primarySource.getData(id)
+            .onErrorResume(error -> {
+                log.error("Primary source failed: {}", error.getMessage());
+                return secondarySource.getData(id);  // 대체 소스
+            });
+    }
+    
+    // 에러 타입별 다른 처리
+    public Mono<Order> processOrder(Order order) {
+        return orderService.process(order)
+            .onErrorResume(ValidationException.class, error -> {
+                // 검증 실패 시 수정 후 재시도
+                Order correctedOrder = correctOrder(order, error);
+                return orderService.process(correctedOrder);
+            })
+            .onErrorResume(PaymentException.class, error -> {
+                // 결제 실패 시 다른 결제 수단
+                return alternativePayment.process(order);
+            })
+            .onErrorResume(error -> {
+                // 기타 에러는 빈 결과
+                return Mono.empty();
+            });
+    }
+    
+    // 캐시 폴백
+    public Flux<Item> getItems() {
+        return remoteService.fetchItems()
+            .onErrorResume(TimeoutException.class, error -> {
+                log.warn("Timeout occurred, using cache");
+                return cacheService.getCachedItems();
+            });
+    }
+```
 
 ### onErrorReturn
+```java
+    // 모든 에러에 대해 기본값 반환
+    Mono<T> onErrorReturn(T fallbackValue);
+    Flux<T> onErrorReturn(T fallbackValue);
+
+    // 특정 에러 타입에 대해서만 기본값 반환
+    Mono<T> onErrorReturn(Class<? extends Throwable> type, T fallbackValue);
+    Flux<T> onErrorReturn(Class<? extends Throwable> type, T fallbackValue);
+
+    // 조건에 따라 기본값 반환
+    Mono<T> onErrorReturn(Predicate<? super Throwable> predicate, T fallbackValue);
+    Flux<T> onErrorReturn(Predicate<? super Throwable> predicate, T fallbackValue);
+```
+- 에러 시 기본값 반환
+- 에러 발생 시 안전한 기본값이 있을 때
+- 부분 실패를 허용하는 시스템
+- Optional과 유사한 패턴이 필요할 때
+
+```java
+    // 기본값 반환
+    public Mono<User> getUserWithDefault(Long userId) {
+        return webClient.get()
+            .uri("/users/{id}", userId)
+            .retrieve()
+            .bodyToMono(User.class)
+            .onErrorReturn(new User("Unknown", "User"));
+    }
+    
+    // 특정 예외에만 기본값
+    public Mono<Product> getProduct(String id) {
+        return productRepository.findById(id)
+            .onErrorReturn(NotFoundException.class, Product.empty())
+            .onErrorReturn(TimeoutException.class, Product.unavailable());
+    }
+    
+    // 조건부 기본값
+    public Flux<Integer> getScores() {
+        return scoreService.fetchScores()
+            .onErrorReturn(
+                error -> error.getMessage().contains("timeout"), -1  // 타임아웃 시 -1 반환
+            );
+    }
+```
 
 ### onErrorMap
+```java
+    // 모든 에러 변환
+    Mono<T> onErrorMap(Function<? super Throwable, ? extends Throwable> mapper);
+
+    // 특정 타입만 변환
+    Mono<T> onErrorMap(Class<? extends Throwable> type,
+                       Function<? super E, ? extends Throwable> mapper);
+
+    // 조건부 변환
+    Mono<T> onErrorMap(Predicate<? super Throwable> predicate,
+                       Function<? super Throwable, ? extends Throwable> mapper);
+```
+- 에러 변환
+- 예외 계층 구조 정리
+- 외부 라이브러리 예외를 도메인 예외로 변환
+- 에러 메시지 개선/풍부화
+
+```java
+    // 일반 예외를 비즈니스 예외로 변환
+    public Mono<Response> callExternalApi(Request request) {
+        return webClient.post()
+            .uri("/api/endpoint")
+            .bodyValue(request)
+            .retrieve()
+            .bodyToMono(Response.class)
+            .onErrorMap(WebClientException.class, error -> 
+                new BusinessException("External API failed", error)
+            )
+            .onErrorMap(TimeoutException.class, error ->
+                new ServiceUnavailableException("Service timeout", error)
+            );
+    }
+    
+    // 상태 코드별 예외 변환
+    public Mono<User> getUser(String id) {
+        return userRepository.findById(id)
+            .onErrorMap(error -> {
+                if (error instanceof DataAccessException) {
+                    return new DatabaseException("Database error", error);
+                } else if (error.getMessage().contains("404")) {
+                    return new NotFoundException("User not found: " + id);
+                }
+                return new UnknownException("Unexpected error", error);
+            });
+    }
+    
+    // 에러 메시지 풍부화
+    public Flux<Data> processData(Flux<RawData> rawData) {
+        return rawData
+            .map(this::transform)
+            .onErrorMap(error -> new ProcessingException(String.format("Failed at %s: %s", Instant.now(), error.getMessage()), error));
+    }
+```
 
 ### onErrorStop
+```Java
+Flux<T> onErrorStop();
+```
+- 트랜잭션 일관성이 중요할 때
+- 부분 성공이 의미 없을 때
 
+```java
+    // 중요 트랜잭션 - 에러 시 즉시 중단
+    public Flux<TransactionResult> processTransactions(Flux<Transaction> transactions) {
+        return transactions
+            .map(this::validate)
+            .map(this::process)
+            .onErrorStop();  // 첫 에러에서 즉시 중단
+    }
+```
+
+### doOnError
+```java
+// 에러 로깅/모니터링
+Mono<T> doOnError(Consumer<? super Throwable> onError);
+
+// 특정 타입만
+Mono<T> doOnError(Class<? extends Throwable> type,
+                  Consumer<? super E> onError);
+
+// 조건부
+Mono<T> doOnError(Predicate<? super Throwable> predicate,
+                  Consumer<? super Throwable> onError);
+```
+- 로깅/모니터링 추가
+- 에러 메트릭 수집
+- 알림 발송 등 부가 작업
+
+```java
+    public Mono<Result> criticalOperation(Request request) {
+        return performOperation(request)
+            .doOnError(error -> {
+                // 에러 로깅
+                log.error("Critical operation failed: {}", error.getMessage());
+                
+                // 메트릭 기록
+                metrics.incrementErrorCount("critical_operation");
+                
+                // 알림 발송
+                alertService.sendAlert(new Alert(error));
+            })
+            .doOnError(TimeoutException.class, error -> {
+                // 타임아웃 특별 처리
+                metrics.recordTimeout("critical_operation");
+            })
+            .onErrorResume(this::fallbackOperation);  // 이후 복구 처리
+    }
+```
 
 ## 예외 처리
 
