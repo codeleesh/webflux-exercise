@@ -1,5 +1,42 @@
 # WebFlux 정리
 
+## map vs flatmap
+
+### map
+- 값을 바로 변환 (포장 안 뜯고 변환)
+- 동기적으로 변환
+- 일반 값을 반환하면 → map
+
+사용 예시
+- 단순 계산
+- 객체 속성 추출
+- DTO 변환
+- 포맷팅
+
+### flatmap
+- 값을 비동기적으로(Mono/Flux로) 변환
+- Mono/Flux를 평탄화 (포장 뜯고 다시 포장)
+- Mono/Flux를 반환하면 → flatMap
+
+사용 예시
+- DB 조회
+- API 호출
+- 조건부 비동기 처리
+- 에러 처리와 복구
+
+Flux.map - 각 요소 변환
+```java
+Flux<String> upperCaseNames = Flux.just("alice", "bob", "charlie")
+    .map(String::toUpperCase);  // ALICE, BOB, CHARLIE
+```
+
+Flux.flatMap - 각 요소를 여러 요소로
+```java
+// 각 사용자의 모든 주문 조회
+Flux<Order> allOrders = Flux.just("user1", "user2", "user3")
+    .flatMap(userId -> orderRepository.findByUserId(userId));  // 각 유저의 여러 주문
+```
+
 ## retrieve 연산자
 - **요청 실행**: 구성된 HTTP 요청을 실행
 - **응답 처리 시작**: 응답 처리를 위한 체인을 시작
@@ -85,7 +122,66 @@ public Mono<User> get() {
 ```
 - 이름 기반 경로 변수 바인딩
 
-## bodyTo 연산자
+## ResponseSpec 연산자
+
+### onStatus
+```java
+ResponseSpec onStatus(
+    Predicate<HttpStatusCode> statusPredicate,
+    Function<ClientResponse, Mono<? extends Throwable>> exceptionFunction
+);
+```
+- 상태 코드별 예외 처리
+- 특정 상태 코드 처리
+- 응답 본문을 포함한 에러 처리
+
+```java
+    public Mono<User> getUser(Long userId) {
+        return webClient
+            .get()
+            .uri("/users/{id}", userId)
+            .retrieve()
+            .onStatus(
+                HttpStatusCode::is4xxClientError,
+                response -> Mono.error(new ClientException("Client error"))
+            )
+            .onStatus(
+                HttpStatusCode::is5xxServerError,
+                response -> Mono.error(new ServerException("Server error"))
+            )
+            .bodyToMono(User.class);
+    }
+```
+
+### onRawStatus
+```java
+ResponseSpec onRawStatus(
+    IntPredicate statusCodePredicate,
+    Function<ClientResponse, Mono<? extends Throwable>> exceptionFunction
+);
+```
+- 정수 상태 코드로 처리
+- 커스텀 상태 코드 처리
+- 범위 기반 처리
+
+```java
+    public Mono<Response> callApi(Request request) {
+        return webClient
+            .post()
+            .uri("/api/endpoint")
+            .bodyValue(request)
+            .retrieve()
+            .onRawStatus(
+                status -> status >= 400 && status < 500,
+                response -> Mono.error(new ClientException("4xx error: " + response.statusCode()))
+            )
+            .onRawStatus(
+                status -> status >= 500,
+                response -> Mono.error(new ServerException("5xx error: " + response.statusCode()))
+            )
+            .bodyToMono(Response.class);
+    }
+```
 
 ### bodyToMono
 ```java
