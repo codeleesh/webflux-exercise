@@ -1,6 +1,9 @@
 # WebFlux 정리
 
 ## retrieve 연산자
+- **요청 실행**: 구성된 HTTP 요청을 실행
+- **응답 처리 시작**: 응답 처리를 위한 체인을 시작
+- **비동기 처리**: WebFlux의 비동기 특성에 따라 HTTP 요청을 비동기적으로 수행
 
 ### 문자열 URI 템플릿 사용
 ```java
@@ -82,47 +85,386 @@ public Mono<User> get() {
 ```
 - 이름 기반 경로 변수 바인딩
 
+## bodyTo 연산자
+
+### bodyToMono 
+- 단일 요소
+```java
+    <T> Mono<T> bodyToMono(Class<T> elementClass);
+    <T> Mono<T> bodyToMono(ParameterizedTypeReference<T> elementTypeRef);
+```
+
+```java
+public Mono<User> getUser(String id) {
+    return webClient.get()
+        .uri("/api/users/{id}", id)
+        .retrieve()
+        .bodyToMono(User.class);
+}
+```
+
+### bodyToFlux
+- 다중 요소 스트림
+```java
+    <T> Flux<T> bodyToFlux(Class<T> elementClass);
+```
+- HTTP 응답 본문을 지정된 타입의 Flux로 변환
+- 배열이나 컬렉션 응답에 적합
+
+```java
+    <T> Flux<T> bodyToFlux(ParameterizedTypeReference<T> elementTypeRef);
+```
+- 복잡한 제네릭 타입을 안전하게 처리
+
+```java
+// 기본 사용법
+public Flux<User> getAllUsers() {
+    return webClient.get()
+        .uri("/api/users")
+        .retrieve()
+        .bodyToFlux(User.class)  // User[] 또는 List<User> 응답을 Flux<User>로
+        .doOnNext(user -> log.info("사용자 조회: {}", user.getName()));
+}
+
+// 제네릭 타입 사용
+public Flux<ApiResponse<User>> getWrappedUsers() {
+    ParameterizedTypeReference<ApiResponse<User>> typeRef = 
+        new ParameterizedTypeReference<ApiResponse<User>>() {};
+    
+    return webClient.get()
+        .uri("/api/users/wrapped")
+        .retrieve()
+        .bodyToFlux(typeRef);
+}
+
+// 스트리밍 데이터 처리
+public Flux<SensorData> streamSensorData() {
+    return webClient.get()
+        .uri("/api/sensors/stream")
+        .retrieve()
+        .bodyToFlux(SensorData.class)
+        .buffer(Duration.ofSeconds(5))  // 5초마다 배치 처리
+        .flatMap(this::processBatch);
+}
+```
+
+### toEntity
+- 전체 HTTP 응답
+
+```java
+    <T> Mono<ResponseEntity<T>> toEntity(Class<T> bodyClass);
+    <T> Mono<ResponseEntity<T>> toEntity(ParameterizedTypeReference<T> bodyTypeRef);
+```
+
+```java
+public Mono<ResponseEntity<User>> getUserWithHeaders(String id) {
+    return webClient.get()
+        .uri("/api/users/{id}", id)
+        .retrieve()
+        .toEntity(User.class)
+        .doOnNext(entity -> {
+            log.info("상태 코드: {}", entity.getStatusCode());
+            log.info("헤더: {}", entity.getHeaders());
+            log.info("본문: {}", entity.getBody());
+        });
+}
+```
+
+### toEntityFlux
+- 스트림과 메타데이터
+
+```java
+    <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(Class<T> elementClass);
+    <T> Mono<ResponseEntity<Flux<T>>> toEntityFlux(ParameterizedTypeReference<T> elementTypeRef);
+```
+
+```java
+public Mono<ResponseEntity<Flux<User>>> getUsersWithMetadata() {
+    return webClient.get()
+        .uri("/api/users")
+        .retrieve()
+        .toEntityFlux(User.class)
+        .doOnNext(entityFlux -> {
+            log.info("응답 헤더: {}", entityFlux.getHeaders());
+            // Flux는 entityFlux.getBody()로 접근
+        });
+}
+```
+
+### toBodilessEntity
+- 본문 없는 응답
+```java
+- ```
+
 ## batch 연산자
+- 스트림의 요소들을 그룹으로 모아서 배치 처리하는데 사용
+- 메모리 효율성 : 큰 스트림을 작은 단위로 처리
+- 처리 성능 향상 : 배치 단위로 I/O 작업 최적화
+- 백프레셔 관리 : 스트림 속도 조절 가능
+- 리소스 최적화 : 데이터베이스 연결이나 네트워크 호출 횟수 감소
 
 ### 개수 기반 : `.buffer(100)`
 - 정확히 N개씩 묶음 (마지막 그룹은 부족할 수 있음)
+- 마지막 그룹은 지정된 개수보다 적을 수 있음
+- 메모리 효율적인 배치 처리 가능
+
+```java
+public Mono<String> batchInsertGroupPosts(final int group) {
+    return this.getAllPosts()
+            .doOnNext(post -> log.info("포스트 조회됨: ID={}, Title={}", post.getId(), post.getTitle()))
+            .buffer(group)  // 지정된 개수만큼 그룹화
+            .doOnNext(posts -> log.info("포스트 목록 조회됨: {}개", posts.size()))
+            .flatMap(posts -> this.save(posts))
+            .count()
+            .map(batchCount -> String.format("총 %d개 배치 처리 완료", batchCount));
+}
+```
 
 ### 시간 시반 : `.buffer(Duration.ofSecondes(10))`
 - 지정된 시간마다 그룹 생성
 - 실시간 처리에 적합
+- 시간 내에 도착한 모든 요소들을 한 번에 처리
+
+```java
+public Mono<String> batchInsertRealTimePosts(final int second) {
+    return this.getAllPosts()
+            .doOnNext(post -> log.info("포스트 조회됨: ID={}, Title={}", post.getId(), post.getTitle()))
+            .buffer(Duration.ofSeconds(second))  // 시간 간격으로 그룹화
+            .doOnNext(posts -> log.info("포스트 목록 조회됨: {}개", posts.size()))
+            .flatMap(posts -> this.save(posts))
+            .count()
+            .map(batchCount -> String.format("총 %d개 배치 처리 완료", batchCount));
+}
+```
 
 ### 개수 OR 시간 기반 : `.bufferTimeout(int, Duration)`
 - 개수 OR 시간(먼저 도달하는 조건)
+- 유연한 배치 처리 가능
+- 트래픽 변동에 대응 가능
+
+```java
+public Flux<Integer> get() {
+    return Flux.range(1, 100)
+            .delayElements(Duration.ofMillis(100))
+            .bufferTimeout(5, Duration.ofSeconds(2))  // 5개 OR 2초 중 먼저 조건
+            .subscribe(batch -> System.out.println("배치: " + batch));   
+}
+```
 
 ### 조건 기반 : `.bufferUntil(condition)`
 - 특정 조건이 만족될 때까지 버퍼링
 - 동적 그룹핑 가능
 
+```java
+public Flux<String> get() {
+    return Flux<String> logs = Flux.just("INFO: start", "DEBUG: processing", "ERROR: failed", "INFO: retry", "DEBUG: success", "INFO: end")
+            .bufferUntil(log -> log.startsWith("ERROR"))  // ERROR까지 버퍼링
+            .subscribe(batch -> System.out.println("로그 배치: " + batch));
+}
+```
+
 ### 조건 기반 : `.bufferWhile(condition)`
 - 특정 조건이 불만족하는 아이템전까지
 - 동적 그룹핑 가능
 
+```java
+public Flux<Interger> get() {
+    return Flux.just(1, 2, 3, 0, 4, 5, 0, 6, 7, 8)
+            .bufferWhile(n -> n != 0)  // 0이 아닌 동안 버퍼링
+            .subscribe(batch -> System.out.println("숫자 배치: " + batch));
+}
+```
+
 ## doOn 연산자
+- 사이드 이펙트 연산자
+- 추가적인 작업을 수행할 수 있게 해주는 연산자
+- 비침투적 : 원본 스트림의 데이터나 흐름을 변경하지 않음
+- 관찰자 패턴 : 스트림을 엿보기하여 상태를 관찰
+- 생명주기 훅 : 스트림의 특정 생명주기 이벤트에 반응
+
 ### doOnSuccess
+```java
+    Mono<T> doOnSuccess(Consumer<? super T> onSuccess);
+    Flux<T> doOnSuccess(Consumer<? super T> onSuccess);
+```
 - `Mono`에만 존재
+- `Mono`가 성공적으로 완료될 때 실행
+
+```java
+public void process() {
+    Mono.just("성공")
+            .doOnSuccess(result -> {
+                log.info("성공적으로 완료: {}", result);
+                // 성공 후 처리 작업
+            })
+            .subscribe();
+}
+```
 
 ### doOnSubscribe
+```java
+    Mono<T> doOnSubscribe(Consumer<? super Subscription> onSubscribe);
+    Flux<T> doOnSubscribe(Consumer<? super Subscription> onSubscribe);
+```
+- mono, flux 사용
 - 구독 시작 시점 감지
+- 구독이 시작될 때 실행
 - 리소스 준비, 권한 검사, 메트릭 시작에 활용
 
+```java
+public void process() {
+    Mono.just("data")
+            .doOnSubscribe(subscription -> {
+                log.info("구독이 시작됩니다");
+                // 리소스 준비, 권한 검사, 메트릭 시작 등
+            })
+            .subscribe();
+}
+```
+
 ### doOnNext
+```java
+    Mono<T> doOnNext(Consumer<? super T> onNext);
+    Flux<T> doOnNext(Consumer<? super T> onNext);
+```
+- mono, flux 사용
 - 각 데이터 아이템 처리 시점
 - 실시간 알림, 캐시 업데이트, 통계 수집에 활용
 - 성능 주의: 가장 빈번히 호출됨
 - 스트림 중간에 에러 발생 시 남은 아이템 처리 안됨
 
+```java
+public void process() {
+    Flux.just(1, 2, 3)
+            .doOnNext(item -> {
+                log.info("아이템 처리: {}", item);
+                // 실시간 알림, 캐시 업데이트, 통계 수집 등
+            })
+            .subscribe();
+}
+```
+
 ### doOnComplete
+```java
+    Mono<T> doOnComplete(Runnable onComplete);
+    Flux<T> doOnComplete(Runnable onComplete);
+```
+- mono, flux 사용
 - 스트림 정상 완료 시점
+- 스트림이 정상적으로 완료될 때 실행
 - 후처리 작업, 리소스 정리, 완료 알림에 활용
 
+```java
+public void process() {
+    Flux.range(1, 3)
+            .doOnComplete(() -> {
+                log.info("스트림 완료");
+                // 후처리 작업, 리소스 정리, 완료 알림
+            })
+            .subscribe();
+}
+```
+
 ### doOnError
+```java
+    Mono<T> doOnError(Consumer<? super Throwable> onError);
+    Flux<T> doOnError(Consumer<? super Throwable> onError);
+```
+- mono, flux 사용
 - 에러 발생 시점 
 - 에러 로깅, 보상 트랜잭션, 장애 대응에 활용
+
+```java
+public void process() {
+    Mono.error(new RuntimeException("에러 발생"))
+            .doOnError(error -> {
+                log.error("에러 감지: {}", error.getMessage());
+                // 에러 로깅, 보상 트랜잭션, 장애 대응
+            })
+            .subscribe();
+}
+```
+
+### doOnCancel
+```java
+    Mono<T> doOnCancel(Runnable onCancel);
+    Flux<T> doOnCancel(Runnable onCancel);
+```
+- mono, flux 사용
+- 구독이 취소될 때 실행
+
+```java
+public void process() {
+    Flux.interval(Duration.ofSeconds(1))
+            .doOnCancel(() -> {
+                log.info("구독이 취소됨");
+                // 정리 작업 수행
+            })
+            .subscribe();
+}
+```
+
+### doOnTerminate
+```java
+    Mono<T> doOnTerminate(Runnable onTerminate);
+    Flux<T> doOnTerminate(Runnable onTerminate);
+```
+- 스트림이 종료될 때 (완료 또는 에러) 실행
+- `doOnComplete` + `doOnError` 의 조합과 유사하지만 취소는 포함 안됨
+
+### doAfterTerminate
+```java
+    Mono<T> doAfterTerminate(Runnable onTerminate);
+    Flux<T> doAfterTerminate(Runnable onTerminate);
+```
+- 스트림이 종료된 후 실행 (완료 또는 에러)
+- `doOnTerminate`와 비슷하지만 실행 순서가 다름
+
+### doOnEach
+```java
+    Mono<T> doOnEach(Consumer<? super Signal<T>> signalConsumer);
+    Flux<T> doOnEach(Consumer<? super Signal<T>> signalConsumer);
+```
+- 모든 신호(onNext, onError, onComplete)에 대해 실행
+- Signal 객체를 통해 신호 타입과 값에 접근 가능
+
+### doOnDiscard
+```java
+    Mono<T> doOnSuccess(Consumer<? super T> onSuccess);
+    Flux<T> doOnSuccess(Consumer<? super T> onSuccess);
+```
+- Mono가 성공적으로 완료될 때 실행 (값이 있거나 empty 상태 모두)
+
+### doFirst
+```java
+    Mono<T> doFirst(Runnable onFirst);
+    Flux<T> doFirst(Runnable onFirst);
+```
+- 구독 직후, 가장 먼저 실행됨 (데이터 방출 이전)
+- 여러 개의 `doFirst`가 있으면 역순으로 실행됨 (LIFO 방식)
+
+```java
+public void process() {
+    Mono.just("data")
+            .doFirst(() -> System.out.println("첫 번째 doFirst"))
+            .doFirst(() -> System.out.println("두 번째 doFirst"))
+            .doFirst(() -> System.out.println("세 번째 doFirst"))
+            .subscribe();
+
+// 출력 순서:
+// 세 번째 doFirst
+// 두 번째 doFirst
+// 첫 번째 doFirst
+}
+```
+
+### doFinally
+```java
+    Mono<T> doFinally(Consumer<SignalType> onFinally);
+    Flux<T> doFinally(Consumer<SignalType> onFinally);
+```
+- 스트림이 종료될 때 (완료/에러/취소 무관) 실행
+- 가장 포괄적인 종료 처리
 
 ### 실무에서 가장 유용한 패턴
 - 전체 라이프사이클 모니터링: 4개 연산자 조합으로 API 전체 추적
@@ -130,6 +472,9 @@ public Mono<User> get() {
 - 장애 대응 자동화: 에러 감지 → 알림 → 보상 작업 파이프라인
 
 ## timeout 연산자
+- 지정된 시간 내에 신호(데이터 또는 완료)가 오지 않으면 TimeoutException을 발생시키는 연산자
+- Mono : 구독 시점부터 첫 번째 신호(onNext 또는 onComplete)까지의 시간
+- Flux : 구독 후 첫 번째 아이템까지, 그리고 각 아이템 간의 시간 간격
 
 ### Mono 클래스
 
