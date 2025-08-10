@@ -81,7 +81,7 @@ public class HttpBinService {
                 .uri("/delay/{seconds}", seconds)
                 .retrieve()
                 .bodyToMono(HttpBinResponse.class)
-                .timeout(Duration.ofSeconds(seconds + 5)); // 여유 시간 추가
+                .timeout(Duration.ofSeconds(seconds + 5));
     }
 
     // HttpStatusException 내부 클래스 추가
